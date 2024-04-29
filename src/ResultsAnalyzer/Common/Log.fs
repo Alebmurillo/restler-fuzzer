@@ -37,7 +37,7 @@ module Log =
         match line with
         | Regex "^Generation-\d+: Rendering Sequence-\d+" [] ->
             Some SequenceBeginning
-        | Regex "^([^']*): Sending: '(.*)'" [ date; request ] ->
+        | Regex "^([^']*): Sending: ('.*'|\".*\")" [ date; request ] ->
             let date = parseDateTime date
             let parsedRequest =
                 request
@@ -57,7 +57,7 @@ module Log =
                     }
                 Some (Sending (date, r))
             | Some request -> Some (Sending (date, request))
-        | Regex "^([^']*): Received: '(.*)'" [ date; response ] ->
+        | Regex "^([^']*): Received: ('.*'|\".*\")" [ date; response ] ->
             let date = parseDateTime date
             let parsedResponse =
                 response
@@ -77,7 +77,8 @@ module Log =
                     }
                 Some (Received (date, r))
             | Some response -> Some (Received (date, response))
-        | _ignoreOtherLogLines -> None
+        | _ignoreOtherLogLines -> 
+            None
 
     let private pairRequestResponses (lines:seq<LogLine>): HttpSeqWithTime<string> =
         // "Peek" at the next line in the log to bundle requests and responses together into a pair.
@@ -93,7 +94,8 @@ module Log =
             | Received _, Sending _ ->
                 None
             | Received _, Received (time, resp) ->
-                failwithf "Unexpected response without prior request at %A: %A" time resp
+                eprintfn "Unexpected response without prior request at %A: %A" time resp
+                None
             | SequenceBeginning, _ | _, SequenceBeginning ->
                 failwithf "Unexpected sequence marker, should have been filtered out by Seq.split already!?"
         )
@@ -105,14 +107,11 @@ module Log =
             // Keep only lines that are either a sequence marker or request/responses.
             |> Seq.indexed
             |> Seq.choose parseLogLine
-
         if Seq.isEmpty parsedLines then
             eprintfn "Error: Log file '%s' contains no valid lines (HTTP requests/responses)" path
             Seq.empty
         else
             parsedLines
-            // Skip the first SequenceBeginning marker (otherwise Seq.split creates an empty first sequence)
-            |> Seq.tail
             // Split into sequences of (request, responses)
             |> Seq.split SequenceBeginning
             |> Seq.map pairRequestResponses
