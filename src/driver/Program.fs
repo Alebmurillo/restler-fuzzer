@@ -14,7 +14,7 @@ open Microsoft.FSharpLu.Diagnostics.Process
 open Restler.Telemetry
 
 [<Literal>]
-let CurrentVersion = "9.2.3"
+let CurrentVersion = "9.2.4"
 let EngineErrorCode = -2
 
 let exitRestler status =
@@ -33,7 +33,8 @@ let usage() =
           [ compile <compile options> |
             test <test options> |
             fuzz-lean <test options> |
-            fuzz <fuzz options> ]
+            fuzz <fuzz options> ] |
+            replay <replay options>
 
     global options:
         --disable_log_upload
@@ -101,9 +102,16 @@ let usage() =
         --search_strategy [bfs-fast(default),bfs,bfs-cheap,random-walk]
 
     replay options:
-        <Required options from 'test' mode as above:
-            --token_refresh_cmd. >
-        --replay_log <path to the RESTler bug bucket repro file>. "
+        <The following options are the same as in 'test' mode:
+            --dictionary_file
+            --token_refresh_interval
+            --token_refresh_command
+            --no_ssl
+            --host
+            --settings
+
+        --replay_log <path to the RESTler bug bucket repro file or trace database>.
+            The replay log file extension may be either '.replay.txt' or '.ndjson'."
     exitRestler 1
 
 module Paths =
@@ -189,7 +197,7 @@ module Compile =
 
 module Fuzz =
 
-    let DefaultFuzzingDurationHours = 1.0
+    let DefaultFuzzingDurationHours = 168.0
 
     let SupportedCheckers =
         [
@@ -411,7 +419,7 @@ module Fuzz =
 
         let fuzzingMode =
             if parameters.searchStrategy.IsNone then
-                "bfs-fast"
+                "bfs-cheap"
             else parameters.searchStrategy.Value
 
         let fuzzingParameters =
@@ -805,7 +813,7 @@ let rec parseArgs (args:DriverArgs) = function
     | "replay"::rest ->
         let engineParameters = parseEngineArgs RestlerTask.Replay DefaultEngineParameters rest
         let engineParameters = { engineParameters with
-                                    checkerOptions = getCheckerOptions Fuzz.DefaultFuzzModeCheckerOptions engineParameters.checkerOptions }
+                                    checkerOptions = getCheckerOptions [] engineParameters.checkerOptions }
         { args with task = Replay
                     taskParameters = EngineParameters engineParameters}
     | invalidArgument::_ ->

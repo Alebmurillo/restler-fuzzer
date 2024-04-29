@@ -25,10 +25,12 @@ class CustomRotatingFileHandler(RotatingFileHandler):
         return base_name + count_ext + type_ext
 
 class RequestTraceLog():
-    def __init__(self, request_id=None, sequence_id=None, combination_id=None, tags={}, sequence_tags={}):
+    def __init__(self, request_id=None, sequence_id=None, combination_id=None, tags={}, sequence_tags={},
+                 replay_blocks=None):
         self.request_id = request_id
         self.sequence_id = sequence_id
         self.tags = tags
+        self.replay_blocks = replay_blocks
         self.origin = None
         self.sequence_tags = sequence_tags
         self.combination_id = combination_id
@@ -42,9 +44,6 @@ class RequestTraceLog():
     @classmethod
     def from_dict(cls, log_dict):
         instance = cls()
-        instance.request_id = log_dict.get('request_id')
-        instance.sequence_id = log_dict.get('sequence_id')
-        instance.combination_id = log_dict.get('combination_id')
         instance.sent_timestamp = log_dict.get('sent_timestamp')
         instance.received_timestamp = log_dict.get('received_timestamp')
         instance.tags = log_dict.get('tags', {})
@@ -56,6 +55,17 @@ class RequestTraceLog():
         instance.request_json = None if request_json is None else json.loads(request_json)
         instance.response_json = None if response_json is None else json.loads(response_json)
         instance.origin = None if 'origin' not in instance.tags else instance.tags['origin']
+
+        instance.sequence_id = None if 'sequence_id' not in instance.tags else instance.tags['sequence_id']
+        instance.combination_id = None if 'combination_id' not in instance.tags else instance.tags['combination_id']
+        instance.request_id = None if 'request_id' not in instance.tags else instance.tags['request_id']
+        instance.origin = None if 'origin' not in instance.tags else instance.tags['origin']
+        instance.hex_definition = None if 'hex_definition' not in instance.tags else instance.tags['hex_definition']
+
+        replay_blocks = log_dict.get('replay_blocks')
+        if replay_blocks is not None:
+            replay_blocks = [tuple(block) for block in replay_blocks]
+        instance.replay_blocks = replay_blocks
         return instance
 
     def normalize(self):
@@ -96,7 +106,7 @@ class RequestTraceLog():
     def response(self, value):
         self._response = value
 
-    def to_dict(self):
+    def to_dict(self, omit_request_text=None):
         tags = {}
         if self.request_id is not None:
             tags["request_id"] = self.request_id
@@ -106,16 +116,22 @@ class RequestTraceLog():
             tags["combination_id"] = self.combination_id
         if self.origin is not None:
             tags["origin"] = self.origin
+
         tags.update(self.tags)
         tags.update(self.sequence_tags)
+        request_text = None if omit_request_text == True else self.request
+        
         return {
             'sent_timestamp': self.sent_timestamp,
             'received_timestamp': self.received_timestamp,
-            'request': self.request,
+            'request': request_text,
             'response': self.response,
-            'request_json': None if self.request_json == None else json.dumps(self.request_json),
-            'response_json': None if self.request_json == None else json.dumps(self.response_json),
-            'tags': tags
+            'request_json': None if self.request_json is None else json.dumps(self.request_json),
+            'response_json': None if self.response_json is None else json.dumps(self.response_json),
+            'tags': tags,
+            # replay blocks contain a list of tuples.  Each tuple contains strings or None,
+            # so it should be safe to serialize directly to JSON
+            'replay_blocks': None if self.replay_blocks is None else self.replay_blocks
         }
 
 class JsonTraceLogReader(TraceLogReaderBase):

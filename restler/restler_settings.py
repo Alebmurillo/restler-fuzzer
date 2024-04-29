@@ -418,6 +418,13 @@ class RestlerSettings(object):
         self._garbage_collection_interval = SettingsArg('garbage_collection_interval', int, None, user_args, minval=0)
         ## Trace database settings
         self._trace_db_settings = SettingsArg('trace_database', dict, {}, user_args)
+        ## Replay settings
+        self._replay_settings = SettingsArg('replay', dict, {}, user_args)
+        # The replay database may also be specified on the command line.
+        if 'replay_log' in user_args:
+            if 'trace_database_file_path' not in self._replay_settings.val:
+                self._replay_settings.val['trace_database_file_path'] = user_args['replay_log']
+
         ## Length of time the garbage collector will attempt to cleanup remaining resources at the end of fuzzing (seconds)
         self._garbage_collector_cleanup_time = SettingsArg('garbage_collector_cleanup_time', int, MAX_GC_CLEANUP_TIME_SECONDS_DEFAULT, user_args, minval=0)
         ## Perform garbage collection of all dynamic objects after each sequence
@@ -525,6 +532,9 @@ class RestlerSettings(object):
         if self._generate_random_seed.val:
             self._random_seed.val = time.time()
 
+        ## Do not encode dynamic objects (workaround for incorrect encoding for headers)
+        self._encode_dynamic_objects = SettingsArg('encode_dynamic_objects', bool, True, user_args)
+
         self._connection_settings = ConnectionSettings(self._target_ip.val,
                                                        self._target_port.val,
                                                        not self._no_ssl.val,
@@ -620,6 +630,23 @@ class RestlerSettings(object):
         """
         if 'file_path' in self._trace_db_settings.val:
             return self._trace_db_settings.val['file_path']
+        return None
+
+    @property
+    def trace_db_replay_file(self):
+        return self._replay_settings.val.get('trace_database_file_path')
+
+    @property
+    def trace_db_omit_request_text(self):
+        return self._trace_db_settings.val.get('omit_request_text')
+
+    @property
+    def trace_db_replay_include_origins(self):
+        if 'include_origins' in self._replay_settings.val:
+            include_origins = self._replay_settings.val['include_origins']
+            if not isinstance(include_origins, list):
+                raise ValueError("Invalid value for 'include_origins'. It should be a list.")
+            return include_origins
         return None
 
     @property
@@ -742,6 +769,10 @@ class RestlerSettings(object):
     @property
     def generate_random_seed(self):
         return self._generate_random_seed.val
+
+    @property
+    def encode_dynamic_objects(self):
+        return self._encode_dynamic_objects.val
 
     @property
     def no_tokens_in_logs(self):
@@ -1000,8 +1031,17 @@ class RestlerSettings(object):
         @return: True if we are running a smoke test
 
         """
-        return self._fuzzing_mode.val == 'directed-smoke-test' or \
-               self._fuzzing_mode.val == 'test-all-combinations'
+        return (self._fuzzing_mode.val == 'directed-smoke-test' or \
+                self._fuzzing_mode.val == 'test-all-combinations') and \
+               (not self.in_scenario_replay_mode())
+
+    def in_scenario_replay_mode(self) -> bool:
+        """ Returns whether or not this run is replaying specific scenarios
+
+        @return: True if this run is replaying specific scenarios
+
+        """
+        return self.trace_db_replay_file is not None
 
     def get_endpoint_custom_mutations_paths(self) -> dict:
         """ Returns the dict containing the endpoint specific custom mutations
